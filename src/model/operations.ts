@@ -1,3 +1,4 @@
+import { canonicalizeMarks } from './marks'
 import {
   nextGraphemeBoundary,
   nextWordBoundary,
@@ -42,10 +43,19 @@ export class InvalidOperationError extends Error {
 /** What a delete consumes when the selection is collapsed. */
 export type DeleteUnit = 'character' | 'word' | 'lineStart'
 
-/** Operations report where the caret ends up, because only they know. */
+/**
+ * Operations report where the caret ends up, because only they know.
+ *
+ * They also report formatting intent. Toggling a mark with a collapsed caret
+ * changes no text at all — there is nothing to format yet — so the entire
+ * result of that operation is an intention to be applied to whatever gets typed
+ * next. Returning it here keeps that on the same path as every other change
+ * rather than needing a second mechanism.
+ */
 export interface OperationResult {
   readonly doc: Doc
   readonly selection: Selection
+  readonly pendingMarks: readonly Mark[] | null
 }
 
 function requireBlock(document: Doc, blockId: string): Block {
@@ -101,6 +111,7 @@ export function deleteRangeRaw(document: Doc, selection: Selection): OperationRe
         document.blocks.map((b) => (b.id === block.id ? { ...b, spans } : b)),
       ),
       selection: collapsedAt(start),
+      pendingMarks: null,
     }
   }
 
@@ -121,6 +132,7 @@ export function deleteRangeRaw(document: Doc, selection: Selection): OperationRe
       ...document.blocks.slice(lastIndex + 1),
     ]),
     selection: collapsedAt(start),
+    pendingMarks: null,
   }
 }
 
@@ -133,8 +145,8 @@ export function insertTextRaw(
   /* A range under the caret is replaced, which is what typing with text
      selected means everywhere else. Doing it here rather than as a separate
      composed operation is what keeps it one normalization and one undo step. */
-  const cleared = isCollapsed(selection)
-    ? { doc: document, selection }
+  const cleared: OperationResult = isCollapsed(selection)
+    ? { doc: document, selection, pendingMarks: null }
     : deleteRangeRaw(document, selection)
 
   const at = cleared.selection.anchor
@@ -164,6 +176,7 @@ export function insertTextRaw(
       cleared.doc.blocks.map((b) => (b.id === block.id ? { ...b, spans } : b)),
     ),
     selection: collapsedAt({ blockId: block.id, offset: at.offset + text.length }),
+    pendingMarks: null,
   }
 }
 
@@ -231,7 +244,7 @@ export function deleteForwardRaw(
   if (at.offset >= length) {
     const index = blockIndex(document, block.id)
     const next = document.blocks[index + 1]
-    if (!next) return { doc: document, selection }
+    if (!next) return { doc: document, selection, pendingMarks: null }
 
     return {
       doc: withBlocks([
@@ -240,6 +253,7 @@ export function deleteForwardRaw(
         ...document.blocks.slice(index + 2),
       ]),
       selection: collapsedAt(at),
+      pendingMarks: null,
     }
   }
 
@@ -256,7 +270,11 @@ function mergeWithPreviousRaw(document: Doc, block: Block): OperationResult {
 
   if (!previous) {
     /* First block of the document — nothing above to merge into. */
-    return { doc: document, selection: collapsedAt({ blockId: block.id, offset: 0 }) }
+    return {
+      doc: document,
+      selection: collapsedAt({ blockId: block.id, offset: 0 }),
+      pendingMarks: null,
+    }
   }
 
   const joinAt = blockLength(previous)
@@ -268,6 +286,7 @@ function mergeWithPreviousRaw(document: Doc, block: Block): OperationResult {
       ...document.blocks.slice(index + 1),
     ]),
     selection: collapsedAt({ blockId: previous.id, offset: joinAt }),
+    pendingMarks: null,
   }
 }
 
@@ -287,8 +306,8 @@ export function splitBlockRaw(
   selection: Selection,
   newBlockId: string,
 ): OperationResult {
-  const cleared = isCollapsed(selection)
-    ? { doc: document, selection }
+  const cleared: OperationResult = isCollapsed(selection)
+    ? { doc: document, selection, pendingMarks: null }
     : deleteRangeRaw(document, selection)
 
   const at = cleared.selection.anchor
@@ -306,5 +325,88 @@ export function splitBlockRaw(
       ...cleared.doc.blocks.slice(index + 1),
     ]),
     selection: collapsedAt({ blockId: newBlockId, offset: 0 }),
+    pendingMarks: null,
   }
+}
+
+/**
+ * Applies or removes a mark across a selection.
+ *
+ * The rule for a partly-formatted range: **remove it only when every character
+ * already carries it; otherwise add it to all of them.** Pressing a format
+ * button is a statement of intent to apply, and only when applying would be a
+ * no-op does pressing it plausibly mean "take this away". Inverting each
+ * character independently is internally consistent and useless — half the
+ * selection would lose its formatting on a keystroke meant to add it.
+ *
+ * With a collapsed caret there is nothing to format yet, so the operation
+ * changes no text and records intent instead. That intent is a complete mark
+ * set rather than a list of marks to add, because pressing Ctrl+B just after a
+ * bold word has to be able to mean *not* bold — contradicting the formatting
+ * that would otherwise be inherited.
+ */
+export function toggleMarkRaw(
+  document: Doc,
+  selection: Selection,
+  mark: Mark,
+  remove: boolean,
+  currentMarks: readonly Mark[],
+): OperationResult {
+  if (isCollapsed(selection)) {
+    return {
+      doc: document,
+      selection,
+      pendingMarks: remove
+        ? currentMarks.filter((m) => m.type !== mark.type)
+        : canonicalizeMarks([...currentMarks.filter((m) => m.type !== mark.type), mark]),
+    }
+  }
+
+  const { start, end } = orderRange(document, selection)
+  const firstIndex = blockIndex(document, start.blockId)
+  const lastIndex = blockIndex(document, end.blockId)
+
+  const blocks = document.blocks.map((block, i) => {
+    if (i < firstIndex || i > lastIndex) return block
+
+    const from = i === firstIndex ? start.offset : 0
+    const to = i === lastIndex ? end.offset : blockLength(block)
+
+    return {
+      ...block,
+      spans: [
+        ...spansBefore(block, from),
+        ...spansBetween(block, from, to).map((span) => ({
+          text: span.text,
+          marks: remove
+            ? span.marks.filter((m) => m.type !== mark.type)
+            : canonicalizeMarks([...span.marks.filter((m) => m.type !== mark.type), mark]),
+        })),
+        ...spansAfter(block, to),
+      ],
+    }
+  })
+
+  return { doc: withBlocks(blocks), selection, pendingMarks: null }
+}
+
+/** Spans covering [from, to), clipped to those bounds. */
+function spansBetween(block: Block, from: number, to: number): readonly TextSpan[] {
+  const result: TextSpan[] = []
+  let offset = 0
+
+  for (const span of block.spans) {
+    const start = offset
+    const end = offset + span.text.length
+    offset = end
+
+    if (end <= from || start >= to) continue
+
+    result.push({
+      text: span.text.slice(Math.max(from - start, 0), Math.min(to - start, span.text.length)),
+      marks: span.marks,
+    })
+  }
+
+  return result
 }

@@ -1,4 +1,4 @@
-import { isCollapsed } from '../model'
+import { effectiveMarks, isCollapsed } from '../model'
 import type { DeleteUnit, EditorState, Mark, Operation, Selection } from '../model'
 
 /**
@@ -63,6 +63,15 @@ export function toOperation(event: InputEvent, context: InputContext): Operation
     case 'deleteHardLineBackward':
       return { type: 'deleteBackward', at, unit: 'lineStart', timestamp }
 
+    /* Ctrl+B and Ctrl+I reach us as beforeinput rather than needing a keydown
+       handler, so the shortcuts come free and stay consistent with the
+       platform's own bindings. */
+    case 'formatBold':
+      return { type: 'toggleMark', at, mark: { type: 'bold' }, timestamp }
+
+    case 'formatItalic':
+      return { type: 'toggleMark', at, mark: { type: 'italic' }, timestamp }
+
     /* Cut always has a range. Guarding the collapsed case stops a stray event
        from silently eating a character. */
     case 'deleteByCut':
@@ -94,10 +103,7 @@ export function toOperation(event: InputEvent, context: InputContext): Operation
  * a bold word bold when you carry on typing at the end of it.
  */
 function marksForInsertion(state: EditorState): readonly Mark[] {
-  if (state.pendingMarks) return state.pendingMarks
-  /* Inheritance by affinity arrives with mark toggling. Until then everything
-     inserts unformatted, which is correct for a document that has no marks. */
-  return []
+  return effectiveMarks(state)
 }
 
 /** Exported for the editor to size its own guards; not part of the model. */
