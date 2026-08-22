@@ -44,6 +44,7 @@ export {
  * operations behind it are not exported: they return documents that have not
  * been normalized, and nothing outside this module should ever hold one.
  */
+export type { DeleteUnit } from './operations'
 export type { Operation } from './apply'
 export { apply } from './apply'
 

@@ -1,13 +1,19 @@
-import { insertTextRaw } from './operations'
 import { normalizeDoc } from './normalize'
-import { collapsedAt } from './selection'
-import type { Doc, EditorState, Mark, Position, Selection } from './types'
+import {
+  deleteBackwardRaw,
+  deleteForwardRaw,
+  insertTextRaw,
+  splitBlockRaw,
+  type DeleteUnit,
+  type OperationResult,
+} from './operations'
+import type { Doc, EditorState, Mark, Selection } from './types'
 
 /**
  * The seam where a user action becomes a state transition.
  *
- * Four things have to happen for every action, and three of them are identical
- * regardless of which action it was:
+ * Four things happen for every action, and three are identical whatever the
+ * action was:
  *
  *   1. change the document      differs per operation
  *   2. normalize the result     always
@@ -15,51 +21,70 @@ import type { Doc, EditorState, Mark, Position, Selection } from './types'
  *   4. record it for undo       always
  *
  * Keeping 2-4 here rather than inside each operation means they cannot be
- * forgotten when a ninth operation is added, and a composed action — typing
- * over a selected range is a delete followed by an insert — normalizes once
- * instead of twice.
+ * forgotten when another operation is added, and it gives one definition of
+ * "one user action" rather than two competing ones.
  *
- * Non-deterministic values arrive as fields on the operation rather than being
- * generated in here. That keeps every operation a pure function of its inputs,
- * so a test can assert whole-document equality instead of stripping
- * unpredictable ids and timestamps first.
+ * Non-deterministic values — new block ids, timestamps — arrive as fields on
+ * the operation rather than being generated in here, so every operation stays a
+ * pure function of its inputs and a test can assert whole-document equality
+ * instead of stripping unpredictable fields first.
  */
 
-export type Operation = {
-  readonly type: 'insertText'
-  readonly at: Position
-  readonly text: string
-  readonly marks: readonly Mark[]
-  readonly timestamp: number
-}
+export type Operation =
+  | {
+      readonly type: 'insertText'
+      readonly at: Selection
+      readonly text: string
+      readonly marks: readonly Mark[]
+      readonly timestamp: number
+    }
+  | {
+      readonly type: 'deleteBackward'
+      readonly at: Selection
+      readonly unit: DeleteUnit
+      readonly timestamp: number
+    }
+  | {
+      readonly type: 'deleteForward'
+      readonly at: Selection
+      readonly unit: DeleteUnit
+      readonly timestamp: number
+    }
+  | {
+      readonly type: 'splitBlock'
+      readonly at: Selection
+      readonly newBlockId: string
+      readonly timestamp: number
+    }
 
-function reduce(document: Doc, op: Operation): Doc {
+function reduce(document: Doc, op: Operation): OperationResult {
   switch (op.type) {
     case 'insertText':
       return insertTextRaw(document, op.at, op.text, op.marks)
 
-    /* No default. The operation type is a discriminated union, so adding a
-       member without handling it here is a compile error rather than a silent
+    case 'deleteBackward':
+      return deleteBackwardRaw(document, op.at, op.unit)
+
+    case 'deleteForward':
+      return deleteForwardRaw(document, op.at, op.unit)
+
+    case 'splitBlock':
+      return splitBlockRaw(document, op.at, op.newBlockId)
+
+    /* No default. Operations are a discriminated union, so adding a member
+       without handling it here is a compile error rather than a silent
        fall-through. */
   }
 }
 
-/** Where the caret ends up after an operation. */
-function nextSelection(op: Operation): Selection {
-  switch (op.type) {
-    case 'insertText':
-      return collapsedAt({ blockId: op.at.blockId, offset: op.at.offset + op.text.length })
-  }
-}
-
 export function apply(state: EditorState, op: Operation): EditorState {
-  const doc = normalizeDoc(reduce(state.doc, op))
+  const result = reduce(state.doc, op)
 
   return {
-    doc,
-    selection: nextSelection(op),
+    doc: normalizeDoc(result.doc),
+    selection: result.selection,
     /* Any action clears explicit formatting intent — it has either been
-       consumed by the inserted text or superseded. */
+       consumed by the text just inserted or superseded by what happened. */
     pendingMarks: null,
   }
 }

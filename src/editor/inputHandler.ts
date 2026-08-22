@@ -1,5 +1,5 @@
-import type { EditorState, Operation, Selection } from '../model'
 import { isCollapsed } from '../model'
+import type { DeleteUnit, EditorState, Mark, Operation, Selection } from '../model'
 
 /**
  * Translates a browser input event into an operation against the model.
@@ -11,7 +11,7 @@ import { isCollapsed } from '../model'
  * Every one of them is cancelled. Anything unhandled becomes a silent no-op
  * rather than being passed to the browser, because letting the browser write
  * would put DOM in the document that the model has no record of, which is the
- * exact divergence this architecture exists to prevent.
+ * divergence this architecture exists to prevent.
  *
  * One inputType cannot be cancelled at all: `insertCompositionText`, fired
  * during IME composition. The browser must own the DOM while composing, so
@@ -21,26 +21,60 @@ import { isCollapsed } from '../model'
 export interface InputContext {
   readonly state: EditorState
   readonly timestamp: number
+  /** Ids come from the edge, so operations stay pure functions of their
+   *  inputs and tests can assert whole-document equality. */
+  readonly newId: () => string
 }
 
 export function toOperation(event: InputEvent, context: InputContext): Operation | null {
-  const { state, timestamp } = context
-  const selection = state.selection
-  if (!selection) return null
+  const { state, timestamp, newId } = context
+  const at = state.selection
+  if (!at) return null
 
   switch (event.inputType) {
     case 'insertText': {
       const text = event.data
       if (text === null || text.length === 0) return null
-      if (!isCollapsed(selection)) return null
+      return { type: 'insertText', at, text, marks: marksForInsertion(state), timestamp }
+    }
 
-      return {
-        type: 'insertText',
-        at: selection.anchor,
-        text,
-        marks: marksForInsertion(state, selection),
-        timestamp,
-      }
+    /* No soft-break node exists in the model, so Shift+Enter becomes a
+       paragraph split. The simplification costs an address or a stanza of
+       poetry becoming several blocks rather than one semantic unit. */
+    case 'insertParagraph':
+    case 'insertLineBreak':
+      return { type: 'splitBlock', at, newBlockId: newId(), timestamp }
+
+    case 'deleteContentBackward':
+      return { type: 'deleteBackward', at, unit: 'character', timestamp }
+
+    case 'deleteContentForward':
+      return { type: 'deleteForward', at, unit: 'character', timestamp }
+
+    case 'deleteWordBackward':
+      return { type: 'deleteBackward', at, unit: 'word', timestamp }
+
+    case 'deleteWordForward':
+      return { type: 'deleteForward', at, unit: 'word', timestamp }
+
+    /* Cmd+Backspace on macOS. Soft and hard line are the same thing here,
+       since a block is never visually wrapped into separate model lines. */
+    case 'deleteSoftLineBackward':
+    case 'deleteHardLineBackward':
+      return { type: 'deleteBackward', at, unit: 'lineStart', timestamp }
+
+    /* Cut always has a range. Guarding the collapsed case stops a stray event
+       from silently eating a character. */
+    case 'deleteByCut':
+      if (isCollapsed(at)) return null
+      return { type: 'deleteBackward', at, unit: 'character', timestamp }
+
+    /* Plain text only — a declared scope cut. Rich paste would mean walking a
+       DOMParser tree against an allowlist, which is described but not built. */
+    case 'insertFromPaste': {
+      const text = event.dataTransfer?.getData('text/plain') ?? event.data
+      if (!text) return null
+      return { type: 'insertText', at, text, marks: marksForInsertion(state), timestamp }
     }
 
     default:
@@ -52,18 +86,19 @@ export function toOperation(event: InputEvent, context: InputContext): Operation
  * What formatting newly typed text should carry.
  *
  * An explicit toggle wins: pressing Ctrl+B with a collapsed caret is a
- * statement of intent, and it has to be able to contradict what would otherwise
- * be inherited — which is why pending marks are a complete mark set rather than
- * a list of marks to add.
+ * statement of intent, and it has to be able to contradict what would
+ * otherwise be inherited — which is why pending marks are a complete mark set
+ * rather than a list of marks to add.
  *
- * Otherwise the text inherits from the character to its left. That is what
- * keeps a bold word bold when you carry on typing at the end of it, which is by
- * far the most common case.
+ * Otherwise text inherits from the character to its left, which is what keeps
+ * a bold word bold when you carry on typing at the end of it.
  */
-function marksForInsertion(state: EditorState, selection: Selection): readonly [] {
-  void state
-  void selection
-  /* Marks are not implemented yet, so everything inserts unformatted. The
-     inheritance rule lands with mark toggling. */
+function marksForInsertion(state: EditorState): readonly Mark[] {
+  if (state.pendingMarks) return state.pendingMarks
+  /* Inheritance by affinity arrives with mark toggling. Until then everything
+     inserts unformatted, which is correct for a document that has no marks. */
   return []
 }
+
+/** Exported for the editor to size its own guards; not part of the model. */
+export type { DeleteUnit, Selection }

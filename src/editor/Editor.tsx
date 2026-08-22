@@ -58,7 +58,11 @@ export function Editor() {
     event.preventDefault()
 
     setState((current) => {
-      const operation = toOperation(event, { state: current, timestamp: Date.now() })
+      const operation = toOperation(event, {
+        state: current,
+        timestamp: Date.now(),
+        newId: () => crypto.randomUUID(),
+      })
       return operation ? apply(current, operation) : current
     })
   }, [])
