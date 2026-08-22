@@ -22,3 +22,19 @@ export {
 } from './marks'
 
 export { normalizeBlock, normalizeDoc, normalizeSpans } from './normalize'
+
+export type { OrderedRange, SpanPoint } from './selection'
+export {
+  blockIndex,
+  blockLength,
+  blockText,
+  clampOffset,
+  collapsedAt,
+  findBlock,
+  flattenOffset,
+  isCollapsed,
+  orderRange,
+  positionsEqual,
+  resolvePosition,
+  splitSpan,
+} from './selection'
