@@ -38,3 +38,11 @@ export {
   resolvePosition,
   splitSpan,
 } from './selection'
+
+/*
+ * `apply` is the whole public surface for changing a document. The raw
+ * operations behind it are not exported: they return documents that have not
+ * been normalized, and nothing outside this module should ever hold one.
+ */
+export type { Operation } from './apply'
+export { apply } from './apply'
