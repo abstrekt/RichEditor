@@ -149,6 +149,99 @@ reasoning applies to the timestamp the history coalescing rules need.
 
 ---
 
+## Mark boundaries
+
+### Toggling a range that is already partly marked
+
+**If every character in the range carries the mark, it is removed from all of
+them. Otherwise it is added to all of them.**
+
+So selecting text where only one word is bold and pressing Ctrl+B makes the
+whole selection bold. Pressing it again — now that everything carries it —
+removes it.
+
+*Alternative:* invert each character independently, so marked characters lose
+the mark and unmarked ones gain it. Internally consistent and useless: half the
+selection would lose its formatting on a keystroke the user meant as "make this
+bold".
+
+*Alternative:* remove unless nothing carries the mark. Defensible, and some
+older editors behaved this way on the logic that the button clears formatting
+whenever any is present. Rejected because it surprises in the common case:
+select a long plain sentence containing one bold word, press Bold expecting
+bold, get nothing.
+
+The reason underneath is about intent. Pressing a format button states "I want
+this". Only when applying would be a no-op does pressing it plausibly mean "I
+want it gone".
+
+### The toolbar shows the same rule from the other side
+
+| Condition | Button shows | Pressing it |
+|---|---|---|
+| every character carries the mark | **active** | removes |
+| some do | **mixed** | adds |
+| none do | **inactive** | adds |
+
+The button's appearance predicts its effect: lit means pressing turns it off,
+anything less than lit means pressing turns it on. One function answers both
+questions, so they cannot drift apart.
+
+### What a character typed at a boundary inherits
+
+An offset can sit at both the end of one run and the start of the next. In
+`Hello world` with `world` bold, offset 6 is simultaneously the end of the plain
+run and the start of the bold one. Typing there could reasonably produce either.
+
+**Backward affinity: a character inherits the formatting of the character to its
+left.** At offset 0 there is nothing to the left, so it falls forward to the
+character on the right.
+
+The case that decides it is not the boundary but the *end of a run*. Having just
+typed a bold word, carrying on typing should stay bold — that is what any editor
+does and what anyone expects. Backward affinity gives that, and it happens to
+give the right answer at a boundary too: clicking just before a bold word and
+typing produces plain text, which is what deliberately placing the caret there
+suggests you wanted.
+
+This falls out of the position model rather than being a second rule bolted on.
+Resolving an offset already returns the span that *ends* there rather than the
+one that begins, so a position and the formatting it inherits agree by
+construction.
+
+*What production would do instead:* track affinity as selection state, set by
+the direction the caret arrived from — right-arrow onto a boundary means left
+affinity, left-arrow onto it means right affinity. More faithful to intent, and
+it is what makes arrow-keying through mixed formatting feel correct rather than
+sticky. The browser's Selection API does not expose affinity at all, so it would
+have to be maintained by hand through every operation, and no event reports
+which direction a click arrived from.
+
+### Pressing a format button with nothing selected
+
+There is no text to format yet, so the toggle changes no document at all. It
+records an intention, applied to the next character typed and discarded if the
+caret moves.
+
+**That intention is a complete mark set, not a list of marks to add.** Pressing
+Ctrl+B with the caret just after a bold word has to be able to mean *not* bold —
+contradicting what affinity would otherwise inherit. A list of additions cannot
+express a removal, so the precedence is:
+
+```
+1. pending marks      explicit toggle; wins
+2. backward affinity  formatting of the character to the left
+3. forward affinity   only reached at offset 0
+```
+
+### Marks compose; they do not replace
+
+Bolding italic text produces text that is both. The exception is links, which
+carry a target: applying a link to a range replaces any link already there,
+because a span cannot render as two anchors at once.
+
+---
+
 ## Deliberately out of scope
 
 Each of these is a scope cut, not an oversight. `ARCHITECTURE.md` describes how
