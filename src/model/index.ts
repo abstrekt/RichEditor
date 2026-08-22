@@ -23,6 +23,15 @@ export {
 
 export { normalizeBlock, normalizeDoc, normalizeSpans } from './normalize'
 
+export type { MarkState } from './marksAt'
+export {
+  effectiveMarks,
+  markState,
+  marksAtPosition,
+  shouldRemove,
+  spansInRange,
+} from './marksAt'
+
 export type { OrderedRange, SpanPoint } from './selection'
 export {
   blockIndex,
