@@ -46,3 +46,5 @@ export {
  */
 export type { Operation } from './apply'
 export { apply } from './apply'
+
+export { DocumentParseError, deserialize, fromJSON, toJSON } from './serialize'
