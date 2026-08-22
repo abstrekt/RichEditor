@@ -36,6 +36,7 @@ export {
   orderRange,
   positionsEqual,
   resolvePosition,
+  selectionsEqual,
   splitSpan,
 } from './selection'
 

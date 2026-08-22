@@ -98,6 +98,12 @@ export function positionsEqual(a: Position, b: Position): boolean {
   return a.blockId === b.blockId && a.offset === b.offset
 }
 
+export function selectionsEqual(a: Selection | null, b: Selection | null): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return positionsEqual(a.anchor, b.anchor) && positionsEqual(a.focus, b.focus)
+}
+
 export function isCollapsed(selection: Selection): boolean {
   return positionsEqual(selection.anchor, selection.focus)
 }

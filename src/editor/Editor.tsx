@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { apply, paragraph } from '../model'
-import type { EditorState } from '../model'
+import { apply, paragraph, selectionsEqual } from '../model'
+import type { EditorState, Selection } from '../model'
 import { toOperation } from './inputHandler'
 import { readSelection, writeSelection } from './domSelection'
 import { renderDoc } from './render'
@@ -20,14 +20,20 @@ export function Editor() {
   const [state, setState] = useState<EditorState>(initialState)
 
   /*
-   * Writing the selection fires selectionchange, which would read it straight
-   * back and schedule another render. The flag marks the window during which
-   * that event is our own echo rather than something the user did.
+   * Writing the selection fires selectionchange, which reads it straight back —
+   * so the loop has to be broken somewhere.
    *
-   * A ref rather than state: it has to be readable synchronously inside an
-   * event listener, and changing it must not itself cause a render.
+   * Guarding on a flag cleared after the write does not work: selectionchange
+   * is dispatched as a task and microtasks drain first, so the flag is already
+   * clear by the time the echo arrives. It only looks like it works because
+   * writing an unchanged selection fires no event at all.
+   *
+   * So the guard is by value instead. The last selection written is recorded,
+   * and an incoming event matching it is our own echo. A ref rather than state
+   * because it must be readable synchronously inside a listener and must not
+   * itself cause a render.
    */
-  const applyingSelection = useRef(false)
+  const lastWritten = useRef<Selection | null>(null)
 
   /*
    * useLayoutEffect, not useEffect: this runs after the DOM is updated but
@@ -41,14 +47,8 @@ export function Editor() {
     renderDoc(container, state.doc)
 
     if (state.selection) {
-      applyingSelection.current = true
+      lastWritten.current = state.selection
       writeSelection(container, state.selection)
-      /* Cleared in a microtask because selectionchange is dispatched
-         asynchronously — clearing synchronously would reopen the loop before
-         the echo arrives. */
-      queueMicrotask(() => {
-        applyingSelection.current = false
-      })
     }
   }, [state])
 
@@ -68,14 +68,23 @@ export function Editor() {
   }, [])
 
   const handleSelectionChange = useCallback(() => {
-    if (applyingSelection.current) return
-
     const container = containerRef.current
     if (!container) return
 
     setState((current) => {
       const selection = readSelection(container, current.doc)
-      return selection ? { ...current, selection, pendingMarks: null } : current
+      if (!selection) return current
+
+      /* Two reasons to return the state unchanged, and both matter. It is our
+         own echo if it matches what we just wrote. And returning a new object
+         for an unchanged selection would re-render, re-write the selection,
+         and hand the loop another turn — so bailing out here is what actually
+         terminates it. */
+      if (selectionsEqual(selection, lastWritten.current)) return current
+      if (selectionsEqual(selection, current.selection)) return current
+
+      /* A caret the user moved themselves discards any pending formatting. */
+      return { ...current, selection, pendingMarks: null }
     })
   }, [])
 

@@ -81,7 +81,13 @@ function fillBlock(element: HTMLElement, block: Block, ownerDocument: Document):
   let hasText = false
 
   for (const span of block.spans) {
-    if (span.text.length > 0) hasText = true
+    /* The sentinel empty span an emptied block keeps has no text to draw, and
+       rendering it produces an element with no text node inside — which
+       selection mapping would then have to walk past. The br below is what
+       gives the block its line box. */
+    if (span.text.length === 0) continue
+
+    hasText = true
     element.appendChild(createSpanElement(span, offset, ownerDocument))
     offset += span.text.length
   }
