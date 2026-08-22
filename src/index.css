@@ -1,9 +1,12 @@
 :root {
   --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-doc: 'Iowan Old Style', Georgia, serif;
   --fg: #1a1a1a;
   --fg-muted: #6b7280;
   --bg: #ffffff;
+  --surface: #ffffff;
   --border: #e5e7eb;
+  --accent: #2563eb;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -11,7 +14,9 @@
     --fg: #ededed;
     --fg-muted: #9ca3af;
     --bg: #16161a;
+    --surface: #1c1c21;
     --border: #2e2e35;
+    --accent: #7aa2f7;
   }
 }
 
@@ -32,6 +37,43 @@ body {
   padding: 3rem 1.5rem;
 }
 
-.scaffold-note {
+h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--fg-muted);
+  margin: 0 0 1rem;
+}
+
+.editor {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+.editor-surface {
+  min-height: 14rem;
+  padding: 1.25rem 1.5rem;
+  font-family: var(--font-doc);
+  font-size: 1.0625rem;
+  line-height: 1.7;
+  outline: none;
+}
+
+.editor-surface:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-radius: 0.5rem;
+}
+
+.editor-block {
+  margin: 0 0 0.75rem;
+}
+
+.editor-block:last-child {
+  margin-bottom: 0;
+}
+
+.editor-surface a {
+  color: var(--accent);
 }
