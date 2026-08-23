@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { EMPTY_HISTORY, apply, paragraph, selectionsEqual } from '../model'
-import type { EditorState, Selection } from '../model'
+import type { Action, EditorState, Selection } from '../model'
 import { toAction, toHistoryAction } from './inputHandler'
+import { Toolbar } from './Toolbar'
 import { readSelection, writeSelection } from './domSelection'
 import { renderDoc } from './render'
 
@@ -78,6 +79,14 @@ export function Editor() {
     setState((current) => apply(current, action))
   }, [])
 
+  const handleClick = useCallback((event: MouseEvent) => {
+    /* This is an editing surface, not a reading one. Following a link on click
+       would make typing in a link-heavy document a minefield, so clicking one
+       places the caret instead. */
+    const target = event.target
+    if (target instanceof Element && target.closest('a')) event.preventDefault()
+  }, [])
+
   const handleSelectionChange = useCallback(() => {
     const container = containerRef.current
     if (!container) return
@@ -108,17 +117,28 @@ export function Editor() {
        and this needs the real one with its inputType intact. */
     container.addEventListener('beforeinput', handleBeforeInput)
     container.addEventListener('keydown', handleKeyDown)
+    container.addEventListener('click', handleClick)
     container.ownerDocument.addEventListener('selectionchange', handleSelectionChange)
 
     return () => {
       container.removeEventListener('beforeinput', handleBeforeInput)
       container.removeEventListener('keydown', handleKeyDown)
+      container.removeEventListener('click', handleClick)
       container.ownerDocument.removeEventListener('selectionchange', handleSelectionChange)
     }
-  }, [handleBeforeInput, handleKeyDown, handleSelectionChange])
+  }, [handleBeforeInput, handleClick, handleKeyDown, handleSelectionChange])
+
+  const dispatch = useCallback((action: Action) => {
+    setState((current) => apply(current, action))
+  }, [])
+
+  const refocus = useCallback(() => {
+    containerRef.current?.focus()
+  }, [])
 
   return (
     <div className="editor">
+      <Toolbar state={state} dispatch={dispatch} refocus={refocus} />
       <div
         ref={containerRef}
         className="editor-surface"
