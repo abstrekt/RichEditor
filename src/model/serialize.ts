@@ -24,8 +24,10 @@ export class DocumentParseError extends Error {
   }
 }
 
-export function toJSON(document: Doc): string {
-  return JSON.stringify(document)
+/** `space` pretty-prints, for showing the serialized form to a human. It
+ *  changes only whitespace, so a round trip is unaffected either way. */
+export function toJSON(document: Doc, space?: number): string {
+  return JSON.stringify(document, null, space)
 }
 
 export function fromJSON(json: string): Doc {

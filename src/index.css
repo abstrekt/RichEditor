@@ -176,3 +176,39 @@ h1 {
   cursor: pointer;
   text-decoration-color: var(--accent);
 }
+
+.serialized {
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+
+.serialized summary {
+  padding: 0.5rem 1.5rem;
+  color: var(--fg-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.serialized summary:hover {
+  color: var(--fg);
+}
+
+.serialized-json {
+  margin: 0;
+  padding: 0 1.5rem;
+  max-height: 18rem;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--fg-muted);
+  /* The document can contain long unbroken strings; the panel scrolls rather
+     than widening the page. */
+  white-space: pre;
+}
+
+.serialized-note {
+  margin: 0;
+  padding: 0.75rem 1.5rem 1rem;
+  color: var(--fg-muted);
+}

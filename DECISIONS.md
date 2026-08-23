@@ -399,4 +399,12 @@ IME and paste would be approached in production.
 - **Collaborative editing.** Snapshots would give way to inverse operations, and
   the span model would likely give way to intervals, which survive concurrent
   remote edits far better than a list of split runs.
-- **Persistence.** The document lives in memory and is lost on refresh.
+- **A storage layer.** The document is written to local storage on every change
+  and read back on load, but that exists to demonstrate the JSON round trip
+  rather than to be a persistence strategy: no versioning, no migration, no
+  conflict handling, and no server. A stored document is treated as untrusted
+  input and validated like any other, so a hand-edited or outdated value starts
+  fresh instead of preventing the editor from booting.
+
+  Undo history is deliberately not kept. Reloading and then being able to undo
+  into a session you no longer remember is worse than starting clean.

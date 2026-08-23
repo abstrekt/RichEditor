@@ -1,18 +1,26 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { EMPTY_HISTORY, apply, paragraph, selectionsEqual } from '../model'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { EMPTY_HISTORY, apply, paragraph, selectionsEqual, toJSON } from '../model'
 import type { Action, EditorState, Selection } from '../model'
 import { toAction, toHistoryAction } from './inputHandler'
 import { Toolbar } from './Toolbar'
+import { load, save } from './storage'
 import { readSelection, writeSelection } from './domSelection'
 import { renderDoc } from './render'
 
 const INITIAL_BLOCK_ID = 'b1'
 
 function initialState(): EditorState {
+  /* A stored document reconstructs through the same validating deserializer as
+     any external one, so a corrupt or outdated value starts fresh instead of
+     preventing the editor from booting. */
+  const restored = load()
+
   return {
-    doc: { blocks: [paragraph(INITIAL_BLOCK_ID, 'Type here.')] },
+    doc: restored ?? { blocks: [paragraph(INITIAL_BLOCK_ID, 'Type here.')] },
     selection: null,
     pendingMarks: null,
+    /* History deliberately does not survive a reload. Undoing into a session
+       the user cannot remember would be worse than starting clean. */
     history: EMPTY_HISTORY,
   }
 }
@@ -176,6 +184,15 @@ export function Editor() {
     }
   }, [handleBeforeInput, handleClick, handleKeyDown, handleSelectionChange, setFollowing])
 
+  /* Written on every document change. The model is small and localStorage is
+     synchronous, so debouncing would add a way to lose the last keystroke in
+     exchange for saving work that costs nothing. */
+  useEffect(() => {
+    save(state.doc)
+  }, [state.doc])
+
+  const serialized = useMemo(() => toJSON(state.doc, 2), [state.doc])
+
   const dispatch = useCallback((action: Action) => {
     setState((current) => apply(current, action))
   }, [])
@@ -197,6 +214,18 @@ export function Editor() {
         aria-multiline="true"
         aria-label="Document"
       />
+
+      {/* The serialized form, live. The requirement is that the model
+          round-trips through JSON; showing what it writes — and reloading the
+          page to read it back — demonstrates that rather than asserting it. */}
+      <details className="serialized">
+        <summary>Serialized document</summary>
+        <pre className="serialized-json">{serialized}</pre>
+        <p className="serialized-note">
+          Saved to local storage on every change and reconstructed on load, so a
+          refresh performs the round trip.
+        </p>
+      </details>
     </div>
   )
 }
