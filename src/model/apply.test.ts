@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { apply, type Operation } from './apply'
+import { EMPTY_HISTORY, apply, type Operation } from './apply'
 import { block, doc, paragraph, span } from './doc'
 import { blockText } from './selection'
 import type { EditorState, Mark, Selection } from './types'
@@ -29,7 +29,7 @@ const across = (
 })
 
 function stateWith(document = doc([paragraph('b1', 'Hello world')])): EditorState {
-  return { doc: document, selection: null, pendingMarks: null }
+  return { doc: document, selection: null, pendingMarks: null, history: EMPTY_HISTORY }
 }
 
 const run = (state: EditorState, op: Operation) => apply(state, op)

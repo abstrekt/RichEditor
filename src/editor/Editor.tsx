@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { apply, paragraph, selectionsEqual } from '../model'
+import { EMPTY_HISTORY, apply, paragraph, selectionsEqual } from '../model'
 import type { EditorState, Selection } from '../model'
-import { toOperation } from './inputHandler'
+import { toAction, toHistoryAction } from './inputHandler'
 import { readSelection, writeSelection } from './domSelection'
 import { renderDoc } from './render'
 
@@ -12,6 +12,7 @@ function initialState(): EditorState {
     doc: { blocks: [paragraph(INITIAL_BLOCK_ID, 'Type here.')] },
     selection: null,
     pendingMarks: null,
+    history: EMPTY_HISTORY,
   }
 }
 
@@ -58,13 +59,23 @@ export function Editor() {
     event.preventDefault()
 
     setState((current) => {
-      const operation = toOperation(event, {
+      const action = toAction(event, {
         state: current,
         timestamp: Date.now(),
         newId: () => crypto.randomUUID(),
       })
-      return operation ? apply(current, operation) : current
+      return action ? apply(current, action) : current
     })
+  }, [])
+
+  const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    const action = toHistoryAction(event)
+    if (!action) return
+
+    /* Cancelled so the browser does not also try to run its own undo, which
+       would rewrite the DOM behind the model's back. */
+    event.preventDefault()
+    setState((current) => apply(current, action))
   }, [])
 
   const handleSelectionChange = useCallback(() => {
@@ -96,13 +107,15 @@ export function Editor() {
        onBeforeInput has historically mapped to a different underlying event,
        and this needs the real one with its inputType intact. */
     container.addEventListener('beforeinput', handleBeforeInput)
+    container.addEventListener('keydown', handleKeyDown)
     container.ownerDocument.addEventListener('selectionchange', handleSelectionChange)
 
     return () => {
       container.removeEventListener('beforeinput', handleBeforeInput)
+      container.removeEventListener('keydown', handleKeyDown)
       container.ownerDocument.removeEventListener('selectionchange', handleSelectionChange)
     }
-  }, [handleBeforeInput, handleSelectionChange])
+  }, [handleBeforeInput, handleKeyDown, handleSelectionChange])
 
   return (
     <div className="editor">

@@ -1,3 +1,5 @@
+import type { History } from './history'
+
 /**
  * The document model.
  *
@@ -63,6 +65,7 @@ export interface Selection {
 export interface EditorState {
   readonly doc: Doc
   readonly selection: Selection | null
+  readonly history: History
   /**
    * Formatting the user asked for that has nothing to attach to yet — pressing
    * Bold with a collapsed cursor.

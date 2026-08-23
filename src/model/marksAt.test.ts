@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { EMPTY_HISTORY } from './history'
 import { block, doc, span } from './doc'
 import { effectiveMarks, markState, marksAtPosition, shouldRemove } from './marksAt'
 import type { EditorState, Mark, Selection } from './types'
@@ -25,6 +26,7 @@ const state = (document = mixed, selection: Selection | null = null): EditorStat
   doc: document,
   selection,
   pendingMarks: null,
+  history: EMPTY_HISTORY,
 })
 
 describe('marksAtPosition — backward affinity', () => {

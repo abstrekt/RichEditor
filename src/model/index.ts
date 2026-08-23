@@ -55,7 +55,10 @@ export {
  * been normalized, and nothing outside this module should ever hold one.
  */
 export type { DeleteUnit } from './operations'
-export type { Operation } from './apply'
+export type { Action, Operation } from './apply'
 export { apply } from './apply'
+
+export type { EditSignature, History, Snapshot } from './history'
+export { COALESCE_WINDOW_MS, EMPTY_HISTORY, canRedo, canUndo, coalesces } from './history'
 
 export { DocumentParseError, deserialize, fromJSON, toJSON } from './serialize'

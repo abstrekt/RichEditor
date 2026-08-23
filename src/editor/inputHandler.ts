@@ -1,5 +1,5 @@
 import { effectiveMarks, isCollapsed } from '../model'
-import type { DeleteUnit, EditorState, Mark, Operation, Selection } from '../model'
+import type { Action, DeleteUnit, EditorState, Mark, Selection } from '../model'
 
 /**
  * Translates a browser input event into an operation against the model.
@@ -26,8 +26,25 @@ export interface InputContext {
   readonly newId: () => string
 }
 
-export function toOperation(event: InputEvent, context: InputContext): Operation | null {
+export function toAction(event: InputEvent, context: InputContext): Action | null {
   const { state, timestamp, newId } = context
+  /*
+   * Some browsers report undo and redo here, and handling them costs nothing —
+   * but nothing can depend on it. Chrome only fires historyUndo when *it* has
+   * something to undo, and since every input is cancelled the browser's own
+   * undo stack is permanently empty, so the event never arrives. The keyboard
+   * shortcuts are handled separately for that reason.
+   */
+  switch (event.inputType) {
+    case 'historyUndo':
+      return { type: 'undo' }
+
+    case 'historyRedo':
+      return { type: 'redo' }
+  }
+
+  /* Everything below acts on a selection, so without one there is nothing to
+     do. Undo and redo are handled above precisely because they do not. */
   const at = state.selection
   if (!at) return null
 
@@ -108,3 +125,28 @@ function marksForInsertion(state: EditorState): readonly Mark[] {
 
 /** Exported for the editor to size its own guards; not part of the model. */
 export type { DeleteUnit, Selection }
+
+/**
+ * Undo and redo from the keyboard.
+ *
+ * These cannot come through `beforeinput`. The browser fires `historyUndo` only
+ * when its own undo stack has something in it, and cancelling every input means
+ * that stack is always empty — so pressing Ctrl+Z produces no input event at
+ * all. It has to be caught as a key press.
+ *
+ * Ctrl on Windows and Linux, Cmd on macOS; both are accepted rather than
+ * sniffing the platform, since no platform binds the other one to something
+ * that would conflict. Ctrl+Y is included because Windows applications
+ * conventionally offer it for redo alongside Ctrl+Shift+Z.
+ */
+export function toHistoryAction(event: KeyboardEvent): Action | null {
+  if (!event.metaKey && !event.ctrlKey) return null
+  if (event.altKey) return null
+
+  const key = event.key.toLowerCase()
+
+  if (key === 'z') return event.shiftKey ? { type: 'redo' } : { type: 'undo' }
+  if (key === 'y') return { type: 'redo' }
+
+  return null
+}

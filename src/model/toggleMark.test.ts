@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { apply } from './apply'
+import { EMPTY_HISTORY, apply } from './apply'
 import { block, doc, paragraph, span } from './doc'
 import { shouldRemove } from './marksAt'
 import { blockText } from './selection'
@@ -28,6 +28,7 @@ const state = (document = mixed, selection: Selection | null = null): EditorStat
   doc: document,
   selection,
   pendingMarks: null,
+  history: EMPTY_HISTORY,
 })
 
 describe('the toggle rule — R4', () => {
