@@ -1,5 +1,9 @@
 # Architecture
 
+How the system works. The *rules* it follows — what toggling does to a
+partly-marked range, what counts as one undo step, and the alternatives rejected
+along the way — are in [DECISIONS.md](./DECISIONS.md) and are not repeated here.
+
 ## The problem this solves
 
 Set `contenteditable="true"` on a div and the browser gives you a text editor
@@ -88,104 +92,41 @@ indistinguishable on screen compare unequal. The only remaining way to compare
 would be rendered output, which is precisely the DOM-snapshot testing this
 project is meant to avoid.
 
-So normalization is the function that collapses all equivalent shapes into one.
-After it runs, **"same document" and "deep-equal object" mean the same thing**,
-and the entire test suite rests on that equivalence.
+So normalization collapses all equivalent shapes into one, and runs after every
+operation. Once it does, **"same document" and "deep-equal object" mean the same
+thing**, and the entire test suite rests on that equivalence.
 
-It guarantees:
-
-1. No span has empty text — *unless it is the only span in its block*
-2. No two adjacent spans have equal marks
-3. Marks are sorted by type and contain no duplicates
-4. At most one link mark per span
-5. Every block has at least one span
-6. The document has at least one block
-
-Rule 1's exception is load-bearing rather than untidy. Rules 1 and 5 cannot both
-hold without exception: a block whose text has all been deleted either holds
-zero spans (breaking 5) or one empty span (breaking 1). Keeping rule 5 whole
-means position resolution and every insertion path always have a span to work
-with, so none of them need a "but what if there is nothing here" branch. The
-tidier-sounding invariant would push that branch out into every consumer
-instead.
-
-Rule 4 is not automatic. Two link marks with different `href`s are not equal, so
-ordinary deduplication would leave both, and rendering would have no answer for
-which anchor wraps the text.
-
-Normalization is idempotent, and that is asserted directly.
+It is idempotent, and that is asserted directly. The six invariants it
+guarantees, and why one of them carries an exception, are in `DECISIONS.md`.
 
 ## Positions and selection
 
 A position is `{ blockId, offset }` — a block, plus a count of UTF-16 code units
-into that block's flattened text.
+into that block's flattened text. Not a path into the span array: normalization
+re-segments spans after every operation, so a path pointing at span 1 dangles
+the moment spans 0 and 1 merge, while a character count is unaffected because
+merging spans never moves a character.
 
-**Not a path.** `{ blockId, spanIndex, offset }` mirrors the storage and is
-nearly what the browser hands you, but it dangles: when the user un-bolds a word
-and normalization merges the two adjacent spans, a position pointing at span 1
-now addresses a span that no longer exists. A character count is unaffected,
-because merging spans never moves a character. Since re-segmenting spans is
-normalization's entire job and normalization runs after every operation, paths
-would need remapping constantly.
+A selection is two such positions, `anchor` and `focus`, rather than an ordered
+pair — shift-arrow extends from the focus, so direction is information.
+Operations sort into a range at the point of use.
 
-**Block ID, not block index** — same argument one level up. Inserting a
-paragraph shifts every index below it; IDs don't move.
+Offsets count code units because that matches both `String.length` and the
+offsets the DOM returns, so nothing has to convert between the model and the
+browser. Operations move in whole grapheme clusters instead, via
+`Intl.Segmenter`. `DECISIONS.md` covers why, and what breaks otherwise.
 
-**Anchor and focus, not start and end.** Direction is information: shift-arrow
-extends from the focus. Operations don't care, so they sort into an ordered
-range at the point of use.
+## Marks and history
 
-**Offsets count code units; operations move in grapheme clusters.** Code units
-match both `String.length` and the offsets the DOM returns, so no conversion
-layer sits between model and browser. But a family emoji is eleven code units,
-seven code points, and one thing a human sees — deleting a code point turns a
-four-person emoji into a three-person one. So anything that moves or deletes
-goes through `Intl.Segmenter`. The invariant: a position inside a grapheme
-cluster is representable; no operation creates one.
+Marks are a discriminated union carried per span. History is a stack of
+whole-document snapshots with a pointer into it, which is affordable because
+immutable operations share structure — an edited document reuses the same object
+references for every block that did not change.
 
-## Marks
-
-Toggling a mark on a range that is only partly marked **adds it to all of the
-range**; removal happens only when every character already carries it. The
-toolbar's three states are the same rule seen from the other side, computed by
-the same function, so the button's appearance predicts its effect.
-
-What a character typed at a formatting boundary inherits falls out of the
-position model rather than being a second rule. Resolving an offset already
-returns the span that *ends* there rather than the one that begins, so a
-position and the formatting it inherits agree by construction.
-
-Pressing a format button with nothing selected changes no document at all — it
-records an intention, applied to the next character typed and discarded when the
-caret moves. That intention is a complete mark set rather than a list of marks
-to add, because pressing Ctrl+B just after a bold word has to be able to mean
-*not* bold, contradicting what would otherwise be inherited.
-
-Links are the exception to almost all of this: they carry a target, so applying
-one replaces rather than toggles, and removal is a separate operation. See
-`DECISIONS.md` for the full rules.
-
-## History
-
-Entries are **complete snapshots of the document and the selection**, not
-inverse operations. The memory objection does not apply, because the operations
-are immutable and share structure: editing one block produces a document that
-reuses the same object references for every block that did not change, so a
-snapshot costs one new block rather than one new document.
-
-The selection lives *inside* the snapshot rather than beside it, so undo
-restores the caret to where it was before an edit rather than where the edit
-left it, and the two cannot drift apart.
-
-Consecutive edits merge into one entry when they are the same kind, in the same
-block, contiguous, within half a second, and not across whitespace — otherwise
-typing `hello` would take five presses of Ctrl+Z. The window is measured from
-the last keystroke rather than the start of the run, so continuous typing
-extends indefinitely and any pause ends it.
-
-The timestamp is an **input** to that rule rather than read from a clock inside
-it, which is what lets a test hand it `t=0` and `t=600` and assert the run broke
-without fake timers.
+Neither is structurally interesting. What matters about them is the rules they
+follow, so those live in `DECISIONS.md`: what toggling does to a partly-marked
+range, what a character typed at a formatting boundary inherits, and what counts
+as one undo step.
 
 ## Rendering: React owns the container, not its contents
 
@@ -220,55 +161,46 @@ caret.
 
 ```
 src/model/    pure data and pure functions. Never imports a DOM API.
-src/editor/   the adapter: reads plain values out of DOM nodes, writes
-              DOM from plain values, and owns the event listeners.
+src/editor/   the adapter: reads plain values out of DOM nodes, writes DOM
+              from plain values, and owns the event listeners.
 ```
 
 The test suite runs in a Node environment specifically so that boundary is
 structural rather than aspirational — an import of `document` under `src/model/`
 fails the suite immediately instead of passing quietly under jsdom.
 
-This is also what makes selection mapping testable. The *math* —
-`resolvePosition`, `flattenOffset`, `orderRange` — takes plain data and returns
-plain data. The DOM adapter pulls values out of nodes and calls into it. So the
-interesting half of the bidirectional mapping is unit-testable without a
-browser.
+That is also what makes selection mapping testable. The maths takes plain data
+and returns plain data; the adapter pulls values out of nodes and calls into it.
+The same split is applied one layer out, so deciding what `deleteWordBackward`
+means takes a plain `{ inputType, data, clipboardText }` rather than an
+`InputEvent`.
 
-The same trick is applied one layer out. Deciding what `deleteWordBackward`
-means is a pure question, so the input mapping takes a plain
-`{ inputType, data, clipboardText }` rather than an `InputEvent`, and the
-clipboard is read at the edge where the DOM types live. A real event satisfies
-the keyboard shape structurally, so no adapter is needed for shortcuts either.
+Non-deterministic values follow the same rule: new block ids and timestamps
+arrive as fields on the operation rather than being generated inside it.
+`crypto.randomUUID()` in a split would make the operation impure and force tests
+to strip unpredictable fields before comparing — and whole-document equality is
+the property the suite rests on.
 
-### What is not covered by tests, and why
-
-`renderDoc` and the DOM selection adapter — about 300 lines — are verified by
-hand in a browser rather than automatically.
-
-This is a deliberate line rather than an omission. jsdom would exercise the
-structural parts (element reuse by block id, the `data-offset` walk, empty-block
-handling) but its `Selection` implementation is partial, so a test could pass
-while the caret lands in the wrong place. The behaviour that matters most in
-that layer is exactly the behaviour jsdom cannot confirm.
+**What is not covered by tests.** `renderDoc` and the DOM selection adapter are
+verified by hand in a browser. jsdom would exercise the structural parts —
+element reuse, the offset walk — but its `Selection` implementation is partial,
+so a test could pass while the caret lands in the wrong place. The behaviour
+that matters most there is exactly what jsdom cannot confirm.
 
 Two bugs found during development make the point in both directions. A typed
 space not appearing was invisible to every model test, because `textContent`
-contains the space whether or not it renders — only measuring the laid-out caret
-position showed it. And coalescing silently never firing was invisible in the
-browser, because undo still worked, just one character at a time; a unit test
-caught it. Neither method would have found both.
+contains the space whether or not it renders. Coalescing silently never firing
+was invisible in the browser, because undo still worked, just one character at a
+time. Neither method would have found both.
 
 ## Why Vite rather than Next.js
 
-An editor built on `contenteditable` is a client-only, keystroke-driven,
-DOM-coupled surface. Next.js would contribute one `'use client'` boundary and
-then nothing else, because the rendering-strategy decisions it exists to enable
-— server components, streaming, ISR — have nothing to act on here. There is no
-data to fetch on the server and no page to prerender.
-
-The point at which that changes is worth naming: if the editor loaded a stored
-document, server-rendering the initial content and streaming the shell would be
-real wins, and the framework would start earning its place.
+An editor built on `contenteditable` is client-only and keystroke-driven. Next.js
+would contribute one `'use client'` boundary and then nothing else, because the
+rendering-strategy decisions it exists to enable have nothing to act on: no data
+to fetch on the server, no page to prerender. That changes the moment the editor
+loads a stored document, at which point server-rendering the initial content
+would be a real win.
 
 ## Out of scope: IME
 

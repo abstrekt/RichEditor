@@ -134,21 +134,6 @@ conversion misplaces the caret in a way that is miserable to debug.
 back to the previous space. Japanese and Thai don't put spaces between words, so
 a whitespace scan deletes an entire sentence on one keystroke.
 
----
-
-## Non-deterministic values are inputs
-
-New block IDs and timestamps are **fields on the operation object**, not values
-generated inside operations.
-
-`crypto.randomUUID()` inside a `splitBlock` would make it impure — the same
-inputs producing a different document every call — and tests would have to strip
-IDs before comparing. Document deep-equality is the property the entire test
-suite rests on, so weakening it to save a parameter is a bad trade. The same
-reasoning applies to the timestamp the history coalescing rules need.
-
----
-
 ## Mark boundaries
 
 ### Toggling a range that is already partly marked
@@ -237,6 +222,10 @@ express a removal, so the precedence is:
 ### Marks compose; they do not replace
 
 Bolding italic text produces text that is both.
+
+---
+
+## Links
 
 ### A link is set-or-remove, not a toggle
 
@@ -361,18 +350,15 @@ does not consume an undo step either.
 Otherwise the next keystroke would merge into the entry that was just stepped
 back past, and pressing undo again would jump two edits at once.
 
-### Keyboard shortcuts do not come from `beforeinput`
+### The shortcuts
 
-The input spec defines `historyUndo` and `historyRedo` inputTypes, and they are
-handled — but nothing depends on them. **Chrome fires `historyUndo` only when
-its own undo stack has something in it**, and because every input event is
-cancelled that stack is permanently empty, so pressing Ctrl+Z produces no input
-event at all.
+`Ctrl`/`Cmd` + `Z` undoes, with `Shift` to redo, and `Ctrl+Y` also redoes since
+Windows applications conventionally offer it. Either modifier is accepted rather
+than sniffing the platform.
 
-So the shortcuts are caught on `keydown` instead: Ctrl or Cmd with `z`, plus
-Shift for redo, and `Ctrl+Y` because Windows applications conventionally offer
-it. The key event is cancelled so the browser does not also attempt its own undo
-and rewrite the DOM behind the model's back.
+These are caught on `keydown` rather than through `beforeinput` — a browser only
+reports `historyUndo` when its own undo stack has something in it, and
+cancelling every input keeps that stack empty. `ARCHITECTURE.md` covers why.
 
 ---
 
