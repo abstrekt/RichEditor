@@ -236,28 +236,95 @@ limitation.
 
 ## Out of scope: HTML paste
 
-Pasted `text/html` is arbitrary markup from an arbitrary source — Word emits
-nested `<span>` soup with inline styles, Google Docs emits its own internal
-markup, and both carry structure this model cannot represent.
+Pasting currently inserts the clipboard's `text/plain` and ignores `text/html`,
+which is lossy but never wrong. What follows is what it would take to do
+properly, because the interesting part is not sanitising the markup — it is
+deciding where the result goes.
 
-The approach, if this were production:
+### Reading the markup safely
 
-1. Parse the clipboard's `text/html` with `DOMParser` into a **detached**
-   document. Not `innerHTML` on a live node, which would execute scripts and
-   fire resource loads.
-2. Walk that tree with an **allowlist**, mapping tags to marks: `<b>`/`<strong>`
-   to bold, `<i>`/`<em>` to italic, `<a href>` to link, `<p>`/`<div>` to block
-   boundaries. Everything else is discarded, keeping its text content.
-3. Also inspect inline styles for the cases that carry formatting without
-   semantic tags — `font-weight: 700` on a `<span>` is how several editors
-   express bold.
-4. Emit the result as model operations, then normalize.
+Parse `text/html` with `DOMParser` into a **detached** document. Not `innerHTML`
+on a live node, which executes scripts and fires resource loads before anything
+has been inspected.
 
-The reason this is a whitelist walk over a parsed tree rather than sanitisation
-of an HTML string: the model can only represent what the walk produces, so
-anything unrecognised is dropped by construction rather than by pattern
-matching. There is no "sanitised HTML" intermediate that could carry something
-unexpected through.
+Then walk that tree with an **allowlist**: `<b>`/`<strong>` to bold,
+`<i>`/`<em>` to italic, `<a href>` to link. Inline styles need reading too,
+since `font-weight: 700` on a bare `<span>` is how several editors express bold.
 
-Currently a paste inserts the clipboard's plain text only, which is lossy but
-never wrong.
+The reason this is a walk over a parsed tree rather than sanitisation of an HTML
+string: the model can only hold what the walk produces, so anything unrecognised
+is dropped by construction rather than by pattern matching. There is no
+"sanitised HTML" intermediate that could carry something unexpected through.
+
+**That argument covers elements, not attributes.** A `<script>` cannot survive a
+walk into a model with no node for it. An `<a href="javascript:...">` survives
+perfectly, because `href` is a field the model accepts verbatim — and opening a
+link is a supported gesture here. Rich paste would need a scheme allowlist on
+`href` (`http`, `https`, `mailto`, relative) before it could be called safe. The
+link input has the same gap today.
+
+### Structure the model cannot hold
+
+"Discard the tag, keep its text" is right for unrecognised **inline** elements —
+`<span>`, `<font>`, `<mark>` — and destructive for **block-level** ones:
+
+```html
+<table>
+  <tr><td>Jan</td><td>120</td></tr>
+  <tr><td>Feb</td><td>140</td></tr>
+</table>
+```
+
+Flattened that way it becomes `Jan120Feb140`: one paragraph, no separators, and
+it *looks* like the paste worked. `<ul><li>a</li><li>b</li></ul>` becomes `ab`.
+
+So the rule has to split on display: **an unrecognised block-level element
+becomes a block boundary; an unrecognised inline element is unwrapped.** The
+table then arrives as two paragraphs — still lossy, but visibly and honestly
+lossy rather than silently scrambled. `<h1>` and `<blockquote>` degrade to
+paragraphs, which is the truthful answer when the model has no node for either.
+
+### Where the pasted content lands
+
+Paste is the only action that inserts **several blocks at once**, and that is
+the part with real work in it.
+
+```
+before:   Hello | world          caret mid-paragraph
+paste:    [A] [B] [C]            three blocks
+
+after:    Hello A
+          B
+          C world
+```
+
+Split the target block at the caret. The pasted fragment's **first** block joins
+the head, its **last** joins the tail, and anything between is inserted whole.
+The cases fall out of that: a single-block paste needs no split at all, which is
+the common one; pasting over a selection deletes the range first, as every
+operation already does; and pasting at a block edge leaves an empty head or tail
+that normalization drops.
+
+Nothing new is required to express this — it is `splitBlock` and the same block
+merging that backspace-at-a-block-start already uses.
+
+### One operation, not several
+
+A multi-block paste emitted as a sequence of operations would push a history
+entry per block, so one Ctrl+Z would take back only the last paragraph.
+
+It has to be a single operation taking an already-parsed fragment. That is the
+same shape every composed action already has here — typing over a selection
+deletes and inserts inside one operation rather than by sequencing two — so the
+design absorbs paste rather than needing an exception for it.
+
+### Which formatting wins
+
+Pasted text currently inherits the destination's formatting, because plain text
+carries none of its own. With rich paste the source's formatting would win,
+which directly contradicts the rule governing typed text.
+
+Both behaviours are legitimate and editors ship both: `Cmd+V` keeps the source's
+formatting, `Cmd+Shift+V` matches the destination. Rich paste would mean
+implementing both and binding them separately — the present behaviour is
+`Cmd+Shift+V` for every paste, arrived at by having nothing else to offer.
