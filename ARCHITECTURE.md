@@ -30,8 +30,24 @@ browser handle it is not, because it would write DOM that the model has no
 record of.
 
 Selection travels the other way. A `selectionchange` listener reads the browser
-selection back into the model, guarded by a flag so that programmatic restores
-don't feed back into a render loop.
+selection back into the model.
+
+That closes a loop which has to be broken somewhere: writing the selection fires
+`selectionchange`, which reads it straight back. A flag cleared after the write
+does not work — `selectionchange` is dispatched as a task and microtasks drain
+first, so the flag is already clear when the echo arrives. It only appears to
+work because writing an *unchanged* selection fires no event at all. So the
+guard compares values instead: the last selection written is recorded, and an
+event matching it is our own echo. The handler also returns the state unchanged
+when the selection has not moved, since a fresh object for an unmoved caret
+would re-render, re-write, and hand the loop another turn.
+
+**Keyboard shortcuts for undo and redo do not travel this path.** The input spec
+defines `historyUndo` and `historyRedo`, and they are handled — but nothing
+depends on them, because a browser fires them only when *its own* undo stack has
+something in it, and cancelling every input keeps that stack permanently empty.
+So Ctrl+Z produces no input event at all and is caught on `keydown` instead. The
+feature disappears from `beforeinput` precisely because the architecture works.
 
 ## The document model
 
@@ -127,6 +143,50 @@ four-person emoji into a three-person one. So anything that moves or deletes
 goes through `Intl.Segmenter`. The invariant: a position inside a grapheme
 cluster is representable; no operation creates one.
 
+## Marks
+
+Toggling a mark on a range that is only partly marked **adds it to all of the
+range**; removal happens only when every character already carries it. The
+toolbar's three states are the same rule seen from the other side, computed by
+the same function, so the button's appearance predicts its effect.
+
+What a character typed at a formatting boundary inherits falls out of the
+position model rather than being a second rule. Resolving an offset already
+returns the span that *ends* there rather than the one that begins, so a
+position and the formatting it inherits agree by construction.
+
+Pressing a format button with nothing selected changes no document at all — it
+records an intention, applied to the next character typed and discarded when the
+caret moves. That intention is a complete mark set rather than a list of marks
+to add, because pressing Ctrl+B just after a bold word has to be able to mean
+*not* bold, contradicting what would otherwise be inherited.
+
+Links are the exception to almost all of this: they carry a target, so applying
+one replaces rather than toggles, and removal is a separate operation. See
+`DECISIONS.md` for the full rules.
+
+## History
+
+Entries are **complete snapshots of the document and the selection**, not
+inverse operations. The memory objection does not apply, because the operations
+are immutable and share structure: editing one block produces a document that
+reuses the same object references for every block that did not change, so a
+snapshot costs one new block rather than one new document.
+
+The selection lives *inside* the snapshot rather than beside it, so undo
+restores the caret to where it was before an edit rather than where the edit
+left it, and the two cannot drift apart.
+
+Consecutive edits merge into one entry when they are the same kind, in the same
+block, contiguous, within half a second, and not across whitespace — otherwise
+typing `hello` would take five presses of Ctrl+Z. The window is measured from
+the last keystroke rather than the start of the run, so continuous typing
+extends indefinitely and any pause ends it.
+
+The timestamp is an **input** to that rule rather than read from a clock inside
+it, which is what lets a test hand it `t=0` and `t=600` and assert the run broke
+without fake timers.
+
 ## Rendering: React owns the container, not its contents
 
 React keeps a virtual DOM — its own copy of what it believes the real DOM looks
@@ -173,6 +233,30 @@ This is also what makes selection mapping testable. The *math* —
 plain data. The DOM adapter pulls values out of nodes and calls into it. So the
 interesting half of the bidirectional mapping is unit-testable without a
 browser.
+
+The same trick is applied one layer out. Deciding what `deleteWordBackward`
+means is a pure question, so the input mapping takes a plain
+`{ inputType, data, clipboardText }` rather than an `InputEvent`, and the
+clipboard is read at the edge where the DOM types live. A real event satisfies
+the keyboard shape structurally, so no adapter is needed for shortcuts either.
+
+### What is not covered by tests, and why
+
+`renderDoc` and the DOM selection adapter — about 300 lines — are verified by
+hand in a browser rather than automatically.
+
+This is a deliberate line rather than an omission. jsdom would exercise the
+structural parts (element reuse by block id, the `data-offset` walk, empty-block
+handling) but its `Selection` implementation is partial, so a test could pass
+while the caret lands in the wrong place. The behaviour that matters most in
+that layer is exactly the behaviour jsdom cannot confirm.
+
+Two bugs found during development make the point in both directions. A typed
+space not appearing was invisible to every model test, because `textContent`
+contains the space whether or not it renders — only measuring the laid-out caret
+position showed it. And coalescing silently never firing was invisible in the
+browser, because undo still worked, just one character at a time; a unit test
+caught it. Neither method would have found both.
 
 ## Why Vite rather than Next.js
 
