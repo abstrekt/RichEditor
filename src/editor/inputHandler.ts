@@ -18,6 +18,32 @@ import type { Action, DeleteUnit, EditorState, Mark, Selection } from '../model'
  * that case needs reconciliation suspended rather than prevented.
  */
 
+/**
+ * What the mapping actually needs from a `beforeinput` event.
+ *
+ * Deliberately not `InputEvent`. Nothing here reads a DOM API, so taking one
+ * would tie a pure decision function to a type it never uses — and force tests
+ * to fabricate an event object to ask "what does Ctrl+Backspace mean?".
+ *
+ * The clipboard text is pulled out at the edge, because `DataTransfer` is a DOM
+ * type and this layer holds none.
+ */
+export interface InputSignal {
+  readonly inputType: string
+  readonly data: string | null
+  readonly clipboardText: string | null
+}
+
+/** The subset of a keyboard event the shortcuts depend on. A real
+ *  `KeyboardEvent` satisfies this structurally, so no adapter is needed. */
+export interface KeySignal {
+  readonly key: string
+  readonly metaKey: boolean
+  readonly ctrlKey: boolean
+  readonly altKey: boolean
+  readonly shiftKey: boolean
+}
+
 export interface InputContext {
   readonly state: EditorState
   readonly timestamp: number
@@ -26,7 +52,7 @@ export interface InputContext {
   readonly newId: () => string
 }
 
-export function toAction(event: InputEvent, context: InputContext): Action | null {
+export function toAction(signal: InputSignal, context: InputContext): Action | null {
   const { state, timestamp, newId } = context
   /*
    * Some browsers report undo and redo here, and handling them costs nothing —
@@ -35,7 +61,7 @@ export function toAction(event: InputEvent, context: InputContext): Action | nul
    * undo stack is permanently empty, so the event never arrives. The keyboard
    * shortcuts are handled separately for that reason.
    */
-  switch (event.inputType) {
+  switch (signal.inputType) {
     case 'historyUndo':
       return { type: 'undo' }
 
@@ -48,9 +74,9 @@ export function toAction(event: InputEvent, context: InputContext): Action | nul
   const at = state.selection
   if (!at) return null
 
-  switch (event.inputType) {
+  switch (signal.inputType) {
     case 'insertText': {
-      const text = event.data
+      const text = signal.data
       if (text === null || text.length === 0) return null
       return { type: 'insertText', at, text, marks: marksForInsertion(state), timestamp }
     }
@@ -98,7 +124,7 @@ export function toAction(event: InputEvent, context: InputContext): Action | nul
     /* Plain text only — a declared scope cut. Rich paste would mean walking a
        DOMParser tree against an allowlist, which is described but not built. */
     case 'insertFromPaste': {
-      const text = event.dataTransfer?.getData('text/plain') ?? event.data
+      const text = signal.clipboardText ?? signal.data
       if (!text) return null
       return { type: 'insertText', at, text, marks: marksForInsertion(state), timestamp }
     }
@@ -139,13 +165,13 @@ export type { DeleteUnit, Selection }
  * that would conflict. Ctrl+Y is included because Windows applications
  * conventionally offer it for redo alongside Ctrl+Shift+Z.
  */
-export function toHistoryAction(event: KeyboardEvent): Action | null {
-  if (!event.metaKey && !event.ctrlKey) return null
-  if (event.altKey) return null
+export function toHistoryAction(signal: KeySignal): Action | null {
+  if (!signal.metaKey && !signal.ctrlKey) return null
+  if (signal.altKey) return null
 
-  const key = event.key.toLowerCase()
+  const key = signal.key.toLowerCase()
 
-  if (key === 'z') return event.shiftKey ? { type: 'redo' } : { type: 'undo' }
+  if (key === 'z') return signal.shiftKey ? { type: 'redo' } : { type: 'undo' }
   if (key === 'y') return { type: 'redo' }
 
   return null

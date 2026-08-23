@@ -60,11 +60,16 @@ export function Editor() {
     event.preventDefault()
 
     setState((current) => {
-      const action = toAction(event, {
-        state: current,
-        timestamp: Date.now(),
-        newId: () => crypto.randomUUID(),
-      })
+      const action = toAction(
+        {
+          inputType: event.inputType,
+          data: event.data,
+          /* Read here rather than passed along: DataTransfer is a DOM type,
+             and the mapping below is meant to hold none. */
+          clipboardText: event.dataTransfer?.getData('text/plain') ?? null,
+        },
+        { state: current, timestamp: Date.now(), newId: () => crypto.randomUUID() },
+      )
       return action ? apply(current, action) : current
     })
   }, [])
