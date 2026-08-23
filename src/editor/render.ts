@@ -23,6 +23,16 @@ import type { Block, Doc, Mark, TextSpan } from '../model'
 /** What each span was rendered from, so the next pass can skip unchanged ones. */
 const rendered = new WeakMap<HTMLElement, Doc>()
 
+/* The modifier that opens a link differs by platform, and naming the wrong one
+   in a tooltip is worse than naming none. navigator.platform is deprecated, so
+   this reads the user agent instead — imperfect, but the cost of being wrong is
+   a slightly off hint rather than broken behaviour, since both modifiers are
+   accepted either way. */
+const MODIFIER_HINT =
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
+    ? 'Cmd'
+    : 'Ctrl'
+
 const BLOCK_ID_ATTR = 'data-block-id'
 const OFFSET_ATTR = 'data-offset'
 
@@ -135,6 +145,9 @@ function createMarkElement(mark: Mark, ownerDocument: Document): HTMLElement {
     case 'link': {
       const anchor = ownerDocument.createElement('a')
       anchor.setAttribute('href', mark.href)
+      /* The only thing telling a reader where a link goes, since a plain click
+         is reserved for placing the caret. */
+      anchor.setAttribute('title', `${mark.href} — ${MODIFIER_HINT}+click to open`)
       return anchor
     }
 

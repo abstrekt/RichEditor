@@ -262,11 +262,23 @@ does not split it in two.
 Selecting the link precisely first would be needless work for what is by far the
 commonest thing anyone does with a link: fix a wrong URL.
 
-### Clicking a link does not follow it
+### Clicking a link places the caret; the modifier opens it
 
-This is an editing surface, not a reading one. A click places the caret and the
-navigation is cancelled; otherwise typing in a link-heavy document is a
-minefield.
+This is an editing surface, not a reading one, so a plain click puts the cursor
+in the text rather than navigating — otherwise typing in a link-heavy document
+is a minefield.
+
+But taking the obvious gesture away and leaving nothing in its place makes a
+link genuinely unreachable, and looks like a bug rather than a decision. So
+**Ctrl or Cmd + click opens it** in a new tab, which is the convention every
+editor uses for exactly this reason. `noopener` is set so the opened page cannot
+reach back through `window.opener` and navigate the editor away from unsaved
+work.
+
+Two things signal that the gesture exists, because a link that behaves
+differently from every other link on the web has to say so: the anchor carries a
+`title` naming the platform's modifier, and while that modifier is held the
+cursor over a link becomes a pointer.
 
 ---
 

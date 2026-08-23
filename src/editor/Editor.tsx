@@ -70,6 +70,8 @@ export function Editor() {
   }, [])
 
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    if (event.metaKey || event.ctrlKey) setFollowing(true)
+
     const action = toHistoryAction(event)
     if (!action) return
 
@@ -79,13 +81,45 @@ export function Editor() {
     setState((current) => apply(current, action))
   }, [])
 
-  const handleClick = useCallback((event: MouseEvent) => {
-    /* This is an editing surface, not a reading one. Following a link on click
-       would make typing in a link-heavy document a minefield, so clicking one
-       places the caret instead. */
-    const target = event.target
-    if (target instanceof Element && target.closest('a')) event.preventDefault()
+  /*
+   * Whether a modifier is currently held, so links can look clickable exactly
+   * while the gesture that opens them is available. Without it a link looks
+   * identical whether or not the modifier is down, and the only way to find out
+   * is to try.
+   */
+  const setFollowing = useCallback((following: boolean) => {
+    containerRef.current?.classList.toggle('is-following', following)
   }, [])
+
+  const handleClick = useCallback((event: MouseEvent) => {
+    const target = event.target
+    if (!(target instanceof Element)) return
+
+    const anchor = target.closest('a')
+    if (!anchor) return
+
+    /*
+     * This is an editing surface, not a reading one, so a plain click places
+     * the caret rather than navigating — otherwise typing in a link-heavy
+     * document is a minefield.
+     *
+     * That takes the obvious gesture away, which is why every editor gives it
+     * back on a modifier. Without this, a link is simply unreachable: plain
+     * click edits, and nothing opens it.
+     */
+    if (event.metaKey || event.ctrlKey) {
+      const href = anchor.getAttribute('href')
+      if (href) {
+        event.preventDefault()
+        /* noopener so the opened page cannot reach back through window.opener
+           and navigate the editor out from under unsaved work. */
+        window.open(href, '_blank', 'noopener,noreferrer')
+      }
+      return
+    }
+
+    event.preventDefault()
+  }, [setFollowing])
 
   const handleSelectionChange = useCallback(() => {
     const container = containerRef.current
@@ -115,18 +149,27 @@ export function Editor() {
     /* Attached directly rather than through React's synthetic events: React's
        onBeforeInput has historically mapped to a different underlying event,
        and this needs the real one with its inputType intact. */
+    /* On the document rather than the container: releasing the modifier while
+       the pointer sits over a link would otherwise leave it looking clickable
+       when it no longer is, and a blur can swallow the keyup entirely. */
+    const clearFollowing = () => setFollowing(false)
+
     container.addEventListener('beforeinput', handleBeforeInput)
     container.addEventListener('keydown', handleKeyDown)
     container.addEventListener('click', handleClick)
+    container.ownerDocument.addEventListener('keyup', clearFollowing)
+    window.addEventListener('blur', clearFollowing)
     container.ownerDocument.addEventListener('selectionchange', handleSelectionChange)
 
     return () => {
       container.removeEventListener('beforeinput', handleBeforeInput)
       container.removeEventListener('keydown', handleKeyDown)
       container.removeEventListener('click', handleClick)
+      container.ownerDocument.removeEventListener('keyup', clearFollowing)
+      window.removeEventListener('blur', clearFollowing)
       container.ownerDocument.removeEventListener('selectionchange', handleSelectionChange)
     }
-  }, [handleBeforeInput, handleClick, handleKeyDown, handleSelectionChange])
+  }, [handleBeforeInput, handleClick, handleKeyDown, handleSelectionChange, setFollowing])
 
   const dispatch = useCallback((action: Action) => {
     setState((current) => apply(current, action))

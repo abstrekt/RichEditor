@@ -165,4 +165,14 @@ h1 {
 
 .editor-surface a {
   color: var(--accent);
+  text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  text-underline-offset: 0.15em;
+}
+
+/* While the modifier is held, links become clickable targets rather than text
+   to put a caret in — the cursor is the only live signal that the gesture has
+   changed meaning. */
+.editor-surface.is-following a {
+  cursor: pointer;
+  text-decoration-color: var(--accent);
 }
