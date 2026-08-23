@@ -236,9 +236,37 @@ express a removal, so the precedence is:
 
 ### Marks compose; they do not replace
 
-Bolding italic text produces text that is both. The exception is links, which
-carry a target: applying a link to a range replaces any link already there,
-because a span cannot render as two anchors at once.
+Bolding italic text produces text that is both.
+
+### A link is set-or-remove, not a toggle
+
+Links carry a target, and that makes them behave differently from bold in a way
+worth stating outright rather than discovering.
+
+**Applying a link to a range replaces any link already there** — a span cannot
+render as two anchors at once. Which means removal cannot be inferred from the
+mark simply being present, the way it is for bold. If it were, the link popover
+prefilling the current URL and the user pressing Apply without editing it would
+*delete* the link rather than leave it alone.
+
+So removal is an explicit operation. The toolbar's Remove button says so
+directly; applying a URL only ever sets one.
+
+### Working with a link from a caret
+
+Putting the cursor anywhere inside a link is enough to edit or remove it — the
+whole run carrying that target is found by walking outwards from the caret. It
+follows the target rather than the whole mark set, so half a link being bold
+does not split it in two.
+
+Selecting the link precisely first would be needless work for what is by far the
+commonest thing anyone does with a link: fix a wrong URL.
+
+### Clicking a link does not follow it
+
+This is an editing surface, not a reading one. A click places the caret and the
+navigation is cancelled; otherwise typing in a link-heavy document is a
+minefield.
 
 ---
 
