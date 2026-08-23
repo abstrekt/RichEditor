@@ -7,6 +7,8 @@ Bold, italic, links, undo and redo. No editor library — the document model,
 the operations, the selection mapping and the history stack are all written
 here.
 
+**[Live demo →](https://editor-six-beryl.vercel.app)**
+
 ## Running it
 
 This repo uses **pnpm**. If you don't have it: `npm install -g pnpm`.

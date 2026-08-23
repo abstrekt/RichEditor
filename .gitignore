@@ -5,8 +5,12 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Vercel
+.vercel
+
 # Editor / OS
 .DS_Store
 .vscode/
 .idea/
 
+.env*
