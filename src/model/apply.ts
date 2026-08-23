@@ -14,12 +14,13 @@ import {
   deleteBackwardRaw,
   deleteForwardRaw,
   insertTextRaw,
+  removeMarkRaw,
   splitBlockRaw,
   toggleMarkRaw,
   type DeleteUnit,
   type OperationResult,
 } from './operations'
-import type { EditorState, Mark, Selection } from './types'
+import type { EditorState, Mark, MarkType, Selection } from './types'
 
 /**
  * The seam where a user action becomes a state transition.
@@ -84,6 +85,14 @@ export type Operation =
       readonly mark: Mark
       readonly timestamp: number
     }
+  | {
+      /* Separate from toggling because a link is set-or-remove: applying a
+         different target replaces, so removal has to be sayable outright. */
+      readonly type: 'removeMark'
+      readonly at: Selection
+      readonly markType: MarkType
+      readonly timestamp: number
+    }
 
 function reduce(state: EditorState, op: Operation): OperationResult {
   const document = state.doc
@@ -100,6 +109,9 @@ function reduce(state: EditorState, op: Operation): OperationResult {
 
     case 'splitBlock':
       return splitBlockRaw(document, op.at, op.newBlockId)
+
+    case 'removeMark':
+      return removeMarkRaw(document, op.at, op.markType)
 
     case 'toggleMark':
       /* Whether this adds or removes is a question about the current state, not
@@ -122,7 +134,9 @@ function reduce(state: EditorState, op: Operation): OperationResult {
 /** Only edits that change text can run together; structural and formatting
  *  changes are always their own undo step. */
 function signatureFor(op: Operation, result: OperationResult): EditSignature | null {
-  if (op.type === 'toggleMark' || op.type === 'splitBlock') return null
+  if (op.type === 'toggleMark' || op.type === 'removeMark' || op.type === 'splitBlock') {
+    return null
+  }
 
   /* Replacing a selection is a discrete act, not part of a run of typing —
      nobody expects one Ctrl+Z to take back both the replacement and the

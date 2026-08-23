@@ -134,10 +134,93 @@ export function shouldRemove(state: EditorState, type: MarkType): boolean {
   const selection = state.selection
   if (!selection) return false
 
+  /*
+   * A link is set-or-remove, not a toggle, because it carries a target.
+   * Applying b.com over a.com must replace rather than clear — and inferring
+   * "already present, so remove" from the mark's presence alone would do
+   * exactly the wrong thing. Pressing Apply in the link popover without editing
+   * the prefilled URL would delete the link.
+   *
+   * So removal for links is an explicit action rather than something derived
+   * from the current state.
+   */
+  if (type === 'link') return false
+
   if (isCollapsed(selection)) {
     return effectiveMarks(state).some((m) => m.type === type)
   }
 
   const spans = spansInRange(state.doc, selection)
   return spans.length > 0 && spans.every((span) => hasMark(span.marks, type))
+}
+
+/** A link, and the full extent of text it covers. */
+export interface LinkExtent {
+  readonly href: string
+  readonly range: Selection
+}
+
+function linkHref(marks: readonly Mark[]): string | null {
+  const link = marks.find((m) => m.type === 'link')
+  return link && link.type === 'link' ? link.href : null
+}
+
+/**
+ * The link the selection sits in, if there is exactly one.
+ *
+ * With a collapsed caret this expands to the whole run carrying that href, so
+ * putting the cursor anywhere inside a link is enough to edit it — which is how
+ * anyone fixes a wrong URL. Requiring the text to be selected precisely first
+ * would be needless work for the commonest case.
+ *
+ * With a range it reports the link only if the entire range carries the same
+ * one; a range spanning two different links, or partly unlinked, has no single
+ * answer and returns null so the toolbar shows mixed rather than picking one.
+ */
+export function linkAt(state: EditorState): LinkExtent | null {
+  const selection = state.selection
+  if (!selection) return null
+
+  const block = state.doc.blocks.find((b) => b.id === selection.focus.blockId)
+  if (!block) return null
+
+  if (!isCollapsed(selection)) {
+    const spans = spansInRange(state.doc, selection)
+    if (spans.length === 0) return null
+
+    const href = linkHref(spans[0]?.marks ?? [])
+    if (!href) return null
+    if (!spans.every((span) => linkHref(span.marks) === href)) return null
+
+    return { href, range: selection }
+  }
+
+  const { spanIndex } = resolvePosition(block, selection.focus.offset)
+  const href = linkHref(block.spans[spanIndex]?.marks ?? [])
+  if (!href) return null
+
+  /* Walk outwards over spans carrying the same target. Adjacent spans can
+     differ in other marks — half a link being bold is perfectly legal — so this
+     compares the href rather than the whole mark set. */
+  let first = spanIndex
+  while (first > 0 && linkHref(block.spans[first - 1]?.marks ?? []) === href) first--
+
+  let last = spanIndex
+  while (last < block.spans.length - 1 && linkHref(block.spans[last + 1]?.marks ?? []) === href) {
+    last++
+  }
+
+  let start = 0
+  for (let i = 0; i < first; i++) start += block.spans[i]?.text.length ?? 0
+
+  let end = start
+  for (let i = first; i <= last; i++) end += block.spans[i]?.text.length ?? 0
+
+  return {
+    href,
+    range: {
+      anchor: { blockId: block.id, offset: start },
+      focus: { blockId: block.id, offset: end },
+    },
+  }
 }

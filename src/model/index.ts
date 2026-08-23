@@ -23,9 +23,10 @@ export {
 
 export { normalizeBlock, normalizeDoc, normalizeSpans } from './normalize'
 
-export type { MarkState } from './marksAt'
+export type { LinkExtent, MarkState } from './marksAt'
 export {
   effectiveMarks,
+  linkAt,
   markState,
   marksAtPosition,
   shouldRemove,

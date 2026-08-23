@@ -16,7 +16,7 @@ import {
   resolvePosition,
   splitSpan,
 } from './selection'
-import type { Block, Doc, Mark, Selection, TextSpan } from './types'
+import type { Block, Doc, Mark, MarkType, Selection, TextSpan } from './types'
 
 /**
  * Raw operations. Each changes the document and stops.
@@ -409,4 +409,45 @@ function spansBetween(block: Block, from: number, to: number): readonly TextSpan
   }
 
   return result
+}
+
+
+/**
+ * Takes a mark off a range, regardless of how much of it currently carries the
+ * mark.
+ *
+ * Distinct from toggling because links are set-or-remove rather than
+ * toggleable: applying a different target replaces, so "remove this link" has
+ * to be sayable directly rather than inferred from the mark already being
+ * there.
+ */
+export function removeMarkRaw(
+  document: Doc,
+  selection: Selection,
+  markType: MarkType,
+): OperationResult {
+  const { start, end } = orderRange(document, selection)
+  const firstIndex = blockIndex(document, start.blockId)
+  const lastIndex = blockIndex(document, end.blockId)
+
+  const blocks = document.blocks.map((block, i) => {
+    if (i < firstIndex || i > lastIndex) return block
+
+    const from = i === firstIndex ? start.offset : 0
+    const to = i === lastIndex ? end.offset : blockLength(block)
+
+    return {
+      ...block,
+      spans: [
+        ...spansBefore(block, from),
+        ...spansBetween(block, from, to).map((span) => ({
+          text: span.text,
+          marks: span.marks.filter((m) => m.type !== markType),
+        })),
+        ...spansAfter(block, to),
+      ],
+    }
+  })
+
+  return { doc: withBlocks(blocks), selection, pendingMarks: null }
 }
