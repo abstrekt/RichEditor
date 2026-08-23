@@ -6,6 +6,7 @@ import { Toolbar } from './Toolbar'
 import { load, save } from './storage'
 import { readSelection, writeSelection } from './domSelection'
 import { renderDoc } from './render'
+import { highlightJson } from './highlightJson'
 
 const INITIAL_BLOCK_ID = 'b1'
 
@@ -193,6 +194,10 @@ export function Editor() {
 
   const serialized = useMemo(() => toJSON(state.doc, 2), [state.doc])
 
+  /* Coloured for reading, not re-parsed: the tokens carry the same characters
+     `toJSON` wrote, only sliced up so each run can take a colour. */
+  const tokens = useMemo(() => highlightJson(serialized), [serialized])
+
   const dispatch = useCallback((action: Action) => {
     setState((current) => apply(current, action))
   }, [])
@@ -220,7 +225,13 @@ export function Editor() {
           page to read it back — demonstrates that rather than asserting it. */}
       <details className="serialized">
         <summary>Serialized document</summary>
-        <pre className="serialized-json">{serialized}</pre>
+        <pre className="serialized-json">
+          {tokens.map((token, index) => (
+            <span key={index} className={`json-${token.kind}`}>
+              {token.text}
+            </span>
+          ))}
+        </pre>
         <p className="serialized-note">
           Saved to local storage on every change and reconstructed on load, so a
           refresh performs the round trip.

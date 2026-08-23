@@ -1,15 +1,31 @@
 :root {
-  --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-doc: 'Iowan Old Style', Georgia, serif;
+  /* Both palettes are declared, so form controls, scrollbars and the default
+     caret follow the theme rather than staying light. The serialized panel is
+     the one scrolling region here, and its scrollbar is the visible payoff. */
+  color-scheme: light dark;
+
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-doc: "Iowan Old Style", Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --fg: #1a1a1a;
   --fg-muted: #6b7280;
-  --bg: #ffffff;
+  /* Not white. The editor is a white surface, and with a white page behind it
+     the card has nothing to sit on but its 1px border. */
+  --bg: #f6f6f8;
   --surface: #ffffff;
   --border: #e5e7eb;
   --accent: #2563eb;
+
+  /* Serialized-document colours. Structure — braces, commas, indentation —
+     gets none of its own: --fg-muted is already the weight punctuation wants,
+     which keeps the coloured tokens the things that stand out. */
+  --code-key: #8250df;
+  --code-string: #0a7d55;
+  --code-number: #0550ae;
+  --code-atom: #cf222e;
 }
 
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   :root {
     --fg: #ededed;
     --fg-muted: #9ca3af;
@@ -17,7 +33,16 @@
     --surface: #1c1c21;
     --border: #2e2e35;
     --accent: #7aa2f7;
+
+    --code-key: #bb9af7;
+    --code-string: #9ece6a;
+    --code-number: #ff9e64;
+    --code-atom: #f7768e;
   }
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 * {
@@ -49,6 +74,7 @@ h1 {
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   background: var(--surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--fg) 6%, transparent);
 }
 
 .editor-surface {
@@ -114,16 +140,35 @@ h1 {
 
 /* Active and mixed have to be distinguishable at a glance, since the button's
    appearance is what tells you whether pressing it will add or remove. */
-.toolbar-button[aria-pressed='true'] {
+.toolbar-button[aria-pressed="true"] {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
 }
 
-.toolbar-button[aria-pressed='mixed'] {
+.toolbar-button[aria-pressed="mixed"] {
   border-color: var(--accent);
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* The generic hover rule above outranks these pressed states on specificity —
+   :hover:not() scores higher than an attribute selector — so hovering a
+   toggled-on button replaced its accent fill with grey while keeping the white
+   text, which was unreadable. Giving each pressed state its own hover both
+   fixes that and makes hover mean "more of the same" rather than an inversion. */
+.toolbar-button[aria-pressed="true"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, black);
+  border-color: color-mix(in srgb, var(--accent) 85%, black);
+}
+
+.toolbar-button[aria-pressed="mixed"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.toolbar-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* In the toolbar's flow rather than floating over it. An absolutely positioned
@@ -198,13 +243,32 @@ h1 {
   padding: 0 1.5rem;
   max-height: 18rem;
   overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   line-height: 1.6;
+  /* Inherited by the structural tokens, which get no colour of their own. */
   color: var(--fg-muted);
   /* The document can contain long unbroken strings; the panel scrolls rather
      than widening the page. */
   white-space: pre;
+}
+
+/* Keys are the document's shape and values are its content, so the two are
+   coloured apart even though JSON spells them identically. */
+.json-key {
+  color: var(--code-key);
+}
+
+.json-string {
+  color: var(--code-string);
+}
+
+.json-number {
+  color: var(--code-number);
+}
+
+.json-atom {
+  color: var(--code-atom);
 }
 
 .serialized-note {
