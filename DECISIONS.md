@@ -242,6 +242,100 @@ because a span cannot render as two anchors at once.
 
 ---
 
+## History
+
+### Snapshots, not inverse operations
+
+Each history entry is a **complete copy of the document and the selection**.
+Undo restores one; redo moves forward again.
+
+The obvious objection is memory — a whole document per keystroke. It is not a
+problem here, because operations are immutable and share structure: editing one
+block produces a document that reuses the *same object references* for every
+block that did not change. A hundred-block document where one block was edited
+costs one new block object, not a hundred. The stack is capped at 100 entries
+anyway.
+
+*Alternative:* store an operation that undoes each change. Genuinely more
+compact, and it is the foundation collaborative editing would need since
+operational transformation and CRDTs both work in operations. Rejected because
+every operation would need a correct inverse that also accounts for
+normalization having reshaped the result — several more places to be subtly
+wrong, in a system where subtly wrong means silently losing the user's text.
+
+**When that changes:** collaborative editing, or documents large enough that
+structural sharing stops being sufficient.
+
+### The selection is part of the snapshot
+
+Not stored beside it. Undo has to restore the caret to where it was *before* the
+edit, not where the edit left it — type a character at offset 5 and the caret
+ends at 6, but undoing should put it back at 5. Keeping both in one object means
+they cannot drift apart.
+
+### Coalescing — what counts as one undo step
+
+Without this, typing `hello` leaves five entries and removing one word takes
+five presses of Ctrl+Z. Undo should work in units of intent.
+
+Two consecutive edits merge into one entry only if **all five** hold:
+
+| | Condition |
+|---|---|
+| 1 | **Same kind of edit** — an insert never continues a delete |
+| 2 | **Same block** |
+| 3 | **Contiguous** — this edit begins exactly where the last one ended |
+| 4 | **Within 500ms** of the previous keystroke |
+| 5 | **Not whitespace** — a space starts a new run |
+
+Condition 3 matters more than it looks: clicking elsewhere in the *same* block
+and typing is contiguous in time and in block but not in position, and is
+obviously a separate act. It holds in both directions — typing at 5 ends at 6
+and the next keystroke starts at 6; backspacing at 5 ends at 4 and the next
+backspace starts at 4.
+
+Condition 4 is measured from the **last** keystroke rather than the start of the
+run, so continuous typing extends indefinitely and any half-second pause ends
+it. Short enough that a deliberate pause reads as a separate act; long enough
+not to chop up fast typing.
+
+Condition 5 puts the space at the **start of the next run**, not the end of the
+current one. So `hello world` becomes `hello` then ` world`, and one undo leaves
+`hello` rather than `hello ` with a dangling space.
+
+*Considered and rejected:* also capping the maximum length of a run, in case
+someone types for thirty seconds without a space. Whitespace breaks runs in
+practice, so it would never trigger.
+
+### What is always its own step
+
+Mark toggles, block splits, paste, and any edit that replaced a selection.
+Replacing a selection is a discrete act — nobody expects one Ctrl+Z to take back
+both the replacement and everything typed after it.
+
+An edit that changed nothing — backspace at the very start of the document —
+does not consume an undo step either.
+
+### Undo clears the coalescing signature
+
+Otherwise the next keystroke would merge into the entry that was just stepped
+back past, and pressing undo again would jump two edits at once.
+
+### Keyboard shortcuts do not come from `beforeinput`
+
+The input spec defines `historyUndo` and `historyRedo` inputTypes, and they are
+handled — but nothing depends on them. **Chrome fires `historyUndo` only when
+its own undo stack has something in it**, and because every input event is
+cancelled that stack is permanently empty, so pressing Ctrl+Z produces no input
+event at all.
+
+So the shortcuts are caught on `keydown` instead: Ctrl or Cmd with `z`, plus
+Shift for redo, and `Ctrl+Y` because Windows applications conventionally offer
+it. The key event is cancelled so the browser does not also attempt its own undo
+and rewrite the DOM behind the model's back.
+
+---
+
 ## Deliberately out of scope
 
 Each of these is a scope cut, not an oversight. `ARCHITECTURE.md` describes how
